@@ -122,6 +122,17 @@ Contributions and issue reports are welcome.
 
 ---
 
+## Acknowledgements
+
+Many thanks to **Theo Arends** for the amazing [Tasmota](https://tasmota.github.io/docs/)
+project, which this web radio is built on.
+
+- Tasmota website & docs: <https://tasmota.github.io/docs/>
+- Tasmota on GitHub: <https://github.com/arendst/Tasmota>
+- Theo Arends: <https://github.com/arendst>
+
+---
+
 ## License
 
 GPLv3 — see [`LICENSE`](LICENSE).
