@@ -3,10 +3,9 @@
 Complete step-by-step setup for the Tasmota Web Radio Mini
 (ESP32-S3 Super Mini + PCM5102A).
 
-There are two ways to flash: **Method A** (direct, recommended) flashes the
-web radio firmware in one step. **Method B** (two-step) installs stock Tasmota
-first, then upgrades to the web radio firmware. Both use the official Tasmota
-web installer and only require a Chromium-based browser (Chrome / Edge).
+The install is done in two stages: flash **stock Tasmota** first with the official
+web installer, then **upgrade** to the web radio firmware. You only need a
+Chromium-based browser (Chrome / Edge).
 
 ---
 
@@ -16,7 +15,6 @@ web installer and only require a Chromium-based browser (Chrome / Edge).
 - A USB-C cable.
 - Chrome or Edge on a computer.
 - The files from this repository:
-  - `firmware/tasmota32s3superminiwebradio.factory.bin`
   - `firmware/tasmota32s3superminiwebradio.bin`
   - the `filesystem/` folder
   - the template and commands in `config/`
@@ -26,62 +24,47 @@ web installer and only require a Chromium-based browser (Chrome / Edge).
 
 ---
 
-## Method A — Direct flash (recommended)
-
-One step: flash the full web radio image over USB.
+## Step 1 — Flash stock Tasmota
 
 1. Plug the device into the computer with USB-C.
 2. Open the Tasmota web installer: <https://tasmota.github.io/install/>
-3. Scroll to the bottom and use **Upload factory.bin** (drag & drop or file dialog).
-4. Select `firmware/tasmota32s3superminiwebradio.factory.bin`.
-5. Click **Connect**, then choose the serial port. On the ESP32-S3 it appears as
-   **"USB JTAG/serial debug unit"** (native USB — no adapter needed).
-6. Confirm the erase/flash. Wait until it completes.
-
-When done, continue at **[WiFi setup](#wifi-setup)** below.
-
-> If the direct method fails for any reason, use Method B instead.
-
----
-
-## Method B — Two-step (fallback)
-
-### B.1 Flash stock Tasmota
-
-1. Plug in the device (USB-C).
-2. Open <https://tasmota.github.io/install/>.
 3. Select **Tasmota (english)** and the ESP32-S3 variant.
-4. Click **Connect**, choose the **USB JTAG/serial debug unit** port.
-5. Enable **Erase device** on first install, then **Install**.
-6. During flashing the USB port may re-enumerate. If prompted with
+4. Click **Connect**, then choose the serial port. On the ESP32-S3 it appears as
+   **"USB JTAG/serial debug unit"** (native USB — no serial adapter needed).
+5. Enable **Erase device** (recommended on first install), then **Install**.
+6. During flashing the USB port may re-enumerate. If you get
    **"Device has been reset to firmware mode. The USB port has changed"**,
    click **Select Port** and pick the port again.
 
-### B.2 Upgrade to the web radio firmware
-
-1. Complete **[WiFi setup](#wifi-setup)** first (so the device is on your network).
-2. Open the device web UI at its IP.
-3. Go to **Firmware Upgrade -> Use file upload**.
-4. Select `firmware/tasmota32s3superminiwebradio.bin`
-   (the ~2.2 MB application image — **not** the factory image).
-5. Click **Start upgrade**.
-6. The device switches to **SAFEBOOT** to update, shows **Upload Successful**,
-   and reboots. Seeing "SAFEBOOT" in red here is normal for a firmware this size.
-
 ---
 
-## WiFi setup
+## Step 2 — WiFi setup
 
 1. After flashing, the device starts a WiFi access point named `tasmota-xxxx`.
 2. Connect to it from a phone or computer.
 3. A captive portal opens (at `192.168.4.1`). Enter your WiFi network name and
    password.
 4. On success the page shows **Successful WiFi Connection** and redirects to the
-   device's new IP on your network. Note that IP.
+   device's new IP on your network. **Note that IP.**
 
 ---
 
-## Apply the template
+## Step 3 — Upgrade to the web radio firmware
+
+1. Open the device web UI at its IP (from Step 2).
+2. Go to **Firmware Upgrade -> Use file upload**.
+3. Select `firmware/tasmota32s3superminiwebradio.bin`
+   (the ~2.2 MB application image).
+4. Click **Start upgrade**.
+5. The device switches to **SAFEBOOT** to perform the update, shows
+   **Upload Successful**, and reboots.
+
+> Seeing **"SAFEBOOT"** in red at this step is **normal** for a firmware this
+> size — it is the safe update mechanism, not an error.
+
+---
+
+## Step 4 — Apply the template
 
 The template maps the GPIOs (I2S audio, button, RGB LED). Without it there is
 no sound.
@@ -90,14 +73,14 @@ no sound.
 2. Go to **Configuration -> Configure Other**.
 3. Paste the template from `config/` (the `{"NAME":"Web Radio", ...}` line) into
    the **Template** field.
-4. Tick **Activate**. *(This is essential — without it the GPIOs are not applied.)*
+4. Tick **Activate**. *(Essential — without it the GPIOs are not applied.)*
 5. Tick **HTTP API enable** (needed by the web UI).
 6. Optionally set a device name and an admin password.
 7. Click **Save**. The device reboots and the title becomes **Web Radio**.
 
 ---
 
-## One-time parameters
+## Step 5 — One-time parameters
 
 In **Tools -> Console**, run (all at once):
 
@@ -122,7 +105,7 @@ The device reboots automatically after applying these. It is then reachable at
 
 ---
 
-## Upload the filesystem
+## Step 6 — Upload the filesystem
 
 The Berry scripts and the web UI live on the device filesystem. Copy them from
 the `filesystem/` folder of this repository, **keeping the same structure**,
@@ -155,7 +138,7 @@ the console).
 
 ---
 
-## Verify
+## Step 7 — Verify
 
 1. Open **Tools -> Console** and check the boot log:
    - `Module: Web Radio`
@@ -178,4 +161,12 @@ The RGB LED indicates state: **red** at boot, **blue** when WiFi is connected,
   `webradio/` subfolder (not at the root).
 - **Not reachable by name:** confirm `SetOption55 1` and the hostname were set;
   use the raw IP otherwise.
-- **Direct factory flash failed:** use Method B (stock Tasmota, then OTA upgrade).
+
+---
+
+## Note on direct factory flashing
+
+A full `factory.bin` is also provided in `firmware/`. In theory it can be flashed
+in one step over USB via the installer's **Upload factory.bin** option. This was
+unreliable during testing on this build, so the two-step method above is the
+recommended and supported path.
