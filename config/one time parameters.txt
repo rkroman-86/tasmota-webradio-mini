@@ -1,0 +1,10 @@
+in Tasmota UI console
+
+Backlog SwitchMode1 1; SetOption55 1; Hostname webradio1
+
+or one by one
+
+
+switchmode1 1
+setoption55 1
+hostname webradio1
