@@ -104,10 +104,23 @@ scripts directly from the Tasmota file manager.
 
 ---
 
-## Web UI
+## Usage
 
 Open `http://webradio1.local/webradio` (or the device IP + `/webradio`).
-Search stations via Radio Browser, play, and manage favorites.
+Search stations via Radio Browser, play, and manage favorites. The interface is
+straightforward:
+
+<p align="center">
+  <img src="docs/images/Screenshot_webUI1.jpg" width="30%" />
+  <img src="docs/images/Screenshot_webUI2.jpg" width="30%" />
+  <img src="docs/images/Screenshot_webUI3.jpg" width="30%" />
+</p>
+
+For everyday use — status LED colors, WiFi setup with the case button, and
+controls — see the [user guide](docs/user-guide.md).
+
+**Status LED:** 🔴 red = booting / not connected · 🔵 blue = connected ·
+🟢 green = WiFi config mode.
 
 ---
 
