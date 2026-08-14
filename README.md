@@ -67,15 +67,16 @@ over the stock `WebRadio` implementation:
 3. **DLNA track transition fix** — advances to the next track at end of stream
    during DLNA playback.
 
-> **Firmware source (GPLv3):** _fork link coming soon._
+> **Firmware source (GPLv3):**
+> [rkroman-86/Tasmota-main @ `webradio-mini`](https://github.com/rkroman-86/Tasmota-main/tree/webradio-mini)
 > This firmware derives from [Tasmota](https://github.com/arendst/Tasmota),
-> licensed under GPLv3. The complete corresponding source will be published as a
-> Tasmota fork.
+> licensed under GPLv3. The complete corresponding source is available in the
+> fork above.
 
 Pre-built binaries are in [`firmware/`](firmware/):
 
-- `tasmota32s3superminiwebradio.factory.bin` — full image, flash over USB at offset 0
-- `tasmota32s3superminiwebradio.bin` — application image, for OTA upload
+- `tasmota32s3-webradio-mini.factory.bin` — full image, flash over USB at offset 0
+- `tasmota32s3-webradio-mini.bin` — application image, for OTA upload
 
 ---
 
@@ -90,7 +91,7 @@ Short version:
 2. **Join WiFi** — connect to the `tasmota-xxxx` access point, enter your network
    credentials, note the device IP.
 3. **Upgrade to the web radio firmware** — Firmware Upgrade -> file upload ->
-   `firmware/tasmota32s3superminiwebradio.bin`.
+   `firmware/tasmota32s3-webradio-mini.bin`.
 4. **Apply the template** — Configuration -> Configure Other -> paste the template
    from [`config/`](config/), tick **Activate**, enable **HTTP API**, Save.
 5. **One-time setup** — in the console, run the commands from
