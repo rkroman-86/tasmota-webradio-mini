@@ -122,6 +122,9 @@ straightforward:
 For everyday use — status LED colors, WiFi setup with the case button, and
 controls — see the [user guide](docs/user-guide.md).
 
+**Integrators:** the device exposes HTTP / MQTT commands (play, stop, volume,
+favorites, playlists) — see the [HTTP API reference](docs/api.md).
+
 **Status LED:** 🔴 red = booting / not connected · 🔵 blue = connected ·
 🟢 green = WiFi config mode.
 
