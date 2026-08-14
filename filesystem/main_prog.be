@@ -37,7 +37,12 @@ def play_station(name, url)
         state["playing"] = true
         tasmota.cmd("i2swr1")
         tasmota.cmd("delay 10")
-        tasmota.cmd("i2swr1 " + url)
+        # i2swr2 pour DLNA local (SetReconnect 0,0), i2swr1 pour webradio internet
+        if string.startswith(url, "http://192.168.") || string.startswith(url, "http://10.")
+            tasmota.cmd("i2swr2 " + url)
+        else
+            tasmota.cmd("i2swr1 " + url)
+        end
         print("playing " + name + " " + url)
         tasmota.cmd("delay 10")
         tasmota.cmd("displaydimmer 1")
@@ -326,3 +331,4 @@ load_data()
 #tasmota.cmd("DisplayText [z]")
 set_vol(state["level"])
 tasmota.cmd("backlog color ff0000; dimmer 100")
+
