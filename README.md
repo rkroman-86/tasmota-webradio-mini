@@ -82,7 +82,9 @@ Pre-built binaries are in [`firmware/`](firmware/):
 
 ## Installation
 
-Full step-by-step guide: [`docs/installation.md`](docs/installation.md).
+Guides:
+- **[Assembly](docs/assembly.md)** — build the unit (soldering, wiring, enclosure).
+- **[Firmware installation](docs/installation.md)** — flashing and configuration.
 
 Short version:
 
