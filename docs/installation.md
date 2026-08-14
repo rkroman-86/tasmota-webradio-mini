@@ -3,6 +3,9 @@
 Complete step-by-step setup for the Tasmota Web Radio Mini
 (ESP32-S3 Super Mini + PCM5102A).
 
+This guide covers **firmware and configuration**. For building the unit first
+(soldering, wiring, enclosure), see the [assembly guide](assembly.md).
+
 The install is done in two stages: flash **stock Tasmota** first with the official
 web installer, then **upgrade** to the web radio firmware. You only need a
 Chromium-based browser (Chrome / Edge).
