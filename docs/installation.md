@@ -15,7 +15,7 @@ Chromium-based browser (Chrome / Edge).
 - A USB-C cable.
 - Chrome or Edge on a computer.
 - The files from this repository:
-  - `firmware/tasmota32s3superminiwebradio.bin`
+  - `firmware/tasmota32s3-webradio-mini.bin`
   - the `filesystem/` folder
   - the template and commands in `config/`
 
@@ -53,7 +53,7 @@ Chromium-based browser (Chrome / Edge).
 
 1. Open the device web UI at its IP (from Step 2).
 2. Go to **Firmware Upgrade -> Use file upload**.
-3. Select `firmware/tasmota32s3superminiwebradio.bin`
+3. Select `firmware/tasmota32s3-webradio-mini.bin`
    (the ~2.2 MB application image).
 4. Click **Start upgrade**.
 5. The device switches to **SAFEBOOT** to perform the update, shows
