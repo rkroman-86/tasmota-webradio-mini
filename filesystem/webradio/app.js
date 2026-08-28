@@ -506,7 +506,7 @@ async function loadFavList() {
 
 const DLNA = {
   SOAP_URL: "/dlna",
-  PAGE_SIZE: 20,
+  PAGE_SIZE: 20,   // 20 items/page : garde la réponse SOAP sous le plafond ~32 Ko de get_string() côté Berry
 };
 
 let dlnaNavStack = [{ id: "0", title: "🏠 Racine" }];
@@ -515,20 +515,77 @@ let dlnaCurrentStart = 0;
 let dlnaTotal = 0;
 let dlnaCurrentItems = [];
 
+let dlnaServers = [];        // [{name, url}, ...] découverts
+let dlnaActiveCtrl = "";     // control URL du serveur actif
+
 function buildSoapEnvelope(objectId, start, count) {
-  return `<?xml version="1.0" encoding="utf-8" standalone="yes"?><s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1"><ObjectID>${objectId}</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag><Filter>*</Filter><StartingIndex>${start}</StartingIndex><RequestedCount>${count}</RequestedCount><SortCriteria></SortCriteria></u:Browse></s:Body></s:Envelope>`;
+  // Filter restreint (dc:title,dc:creator,res) au lieu de "*" :
+  // réduit fortement la taille de chaque item DIDL renvoyé par Windows Media,
+  // ce qui évite la troncature de la réponse côté ESP32.
+  return `<?xml version="1.0" encoding="utf-8" standalone="yes"?><s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1"><ObjectID>${objectId}</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag><Filter>dc:title,dc:creator,res,@childCount</Filter><StartingIndex>${start}</StartingIndex><RequestedCount>${count}</RequestedCount><SortCriteria></SortCriteria></u:Browse></s:Body></s:Envelope>`;
 }
 
 async function browseRoot() {
   setStatus("Découverte DLNA...");
+  els.results.innerHTML = `<div class="station"><div class="station-info"><div class="station-name">🔍 Recherche des serveurs…</div></div></div>`;
   try {
-    await fetch('/dlna/discover');
+    const resp = await fetch('/dlna/discover');
+    dlnaServers = await resp.json();
   } catch(e) {
     console.warn("discover failed:", e);
+    dlnaServers = [];
   }
-  dlnaNavStack = [{ id: "0", title: "🏠 Racine" }];
-  dlnaCurrentId = "0";
-  await dlnaBrowse("0", 0);
+  renderServerList();
+}
+
+function renderServerList() {
+  els.results.innerHTML = "";
+
+  const title = document.createElement("div");
+  title.className = "dlna-breadcrumb";
+  title.textContent = "Serveurs DLNA trouvés :";
+  els.results.appendChild(title);
+
+  if (!dlnaServers || dlnaServers.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "station";
+    empty.innerHTML = `<div class="station-info"><div class="station-name">Aucun serveur trouvé.</div></div>`;
+    els.results.appendChild(empty);
+    setStatus("Aucun serveur DLNA.", true);
+    return;
+  }
+
+  setStatus(dlnaServers.length + " serveur(s) trouvé(s).");
+
+  dlnaServers.forEach((srv) => {
+    const card = document.createElement("div");
+    card.className = "station dlna-folder";
+    card.style.cursor = "pointer";
+
+    const info = document.createElement("div");
+    info.className = "station-info";
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "station-name";
+    nameEl.textContent = "🖥️ " + (srv.name || srv.url);
+
+    const urlEl = document.createElement("div");
+    urlEl.className = "station-url";
+    urlEl.textContent = srv.url;
+
+    info.appendChild(nameEl);
+    info.appendChild(urlEl);
+    card.appendChild(info);
+
+    card.addEventListener("click", () => {
+      dlnaActiveCtrl = srv.url;
+      dlnaNavStack = [{ id: "0", title: "🏠 " + (srv.name || "Racine") }];
+      dlnaCurrentId = "0";
+      dlnaBrowse("0", 0);
+    });
+
+    els.results.appendChild(card);
+  });
 }
 
 async function dlnaBrowse(objectId, startIndex) {
@@ -538,7 +595,8 @@ async function dlnaBrowse(objectId, startIndex) {
   setStatus("Connexion au serveur DLNA…");
 
   try {
-    const resp = await fetch(DLNA.SOAP_URL, {
+    const url = DLNA.SOAP_URL + "?ctrl=" + encodeURIComponent(dlnaActiveCtrl);
+    const resp = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "text/xml;charset=utf-8",
@@ -583,6 +641,20 @@ function dlnaRender(xmlText, objectId, startIndex) {
   // Breadcrumb
   const bc = document.createElement("div");
   bc.className = "dlna-breadcrumb";
+
+  // Crumb "Serveurs" -> revient à la liste des serveurs
+  const srvCrumb = document.createElement("span");
+  srvCrumb.className = "dlna-crumb";
+  srvCrumb.textContent = "🖥️ Serveurs";
+  srvCrumb.style.cursor = "pointer";
+  srvCrumb.addEventListener("click", () => renderServerList());
+  bc.appendChild(srvCrumb);
+
+  const srvSep = document.createElement("span");
+  srvSep.className = "dlna-sep";
+  srvSep.textContent = " › ";
+  bc.appendChild(srvSep);
+
   dlnaNavStack.forEach((item, i) => {
     if (i > 0) {
       const sep = document.createElement("span");
