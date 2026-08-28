@@ -1,134 +1,223 @@
 import webserver
 import string
 
-# URL du serveur DLNA découvert dynamiquement
-# Fallback hardcodé si la découverte échoue
-var dlna_control_url = 'http://192.168.1.1:49153/web/cds_control'
+# =====================================================================
+#  DLNA / UPnP ContentDirectory - multi-serveur
+#  Decouverte SSDP de tous les serveurs, selection cote UI,
+#  proxy SOAP qui route vers le serveur choisi.
+# =====================================================================
 
-# ----------- Découverte SSDP -----------
+# Liste des serveurs decouverts : [{"name":..., "url":...}, ...]
+var dlna_servers = []
 
-def dlna_fetch_control(location)
+# ---------------------------------------------------------------------
+#  Nettoyage d'une valeur (URL / header) : coupe sur \r ou \n,
+#  retire espaces en tete et octets non imprimables en fin.
+# ---------------------------------------------------------------------
+def dlna_clean(str_in)
+  var s = str_in
+  var cut = size(s)
+  var i = 0
+  while i < size(s)
+    var c = s[i..i]
+    if c == "\r" || c == "\n"
+      cut = i
+      break
+    end
+    i += 1
+  end
+  s = s[0..cut-1]
+  while size(s) > 0 && s[0..0] == " "
+    s = s[1..]
+  end
+  var sb = bytes().fromstring(s)
+  while size(sb) > 0
+    var code = sb[size(sb)-1]
+    if code < 0x20 || code > 0x7E
+      sb = sb[0..size(sb)-2]
+    else
+      break
+    end
+  end
+  return sb.asstring()
+end
+
+# ---------------------------------------------------------------------
+#  Extrait "http://host:port" d'une URL de LOCATION.
+# ---------------------------------------------------------------------
+def dlna_origin(location)
+  var p = string.find(location, "/", 7)   # 1er "/" apres "http://"
+  if p >= 0
+    return location[0..p-1]
+  end
+  return location
+end
+
+# ---------------------------------------------------------------------
+#  A partir d'une LOCATION, fetch le descriptif et, s'il contient
+#  un service ContentDirectory, ajoute {name, url} a dlna_servers.
+# ---------------------------------------------------------------------
+def dlna_add_server(location)
   var cl = webclient()
   cl.begin(location)
   var code = cl.GET()
   if code != 200
-    print("DLNA: description fetch failed: " + str(code))
     cl.close()
     return
   end
   var xml = cl.get_string()
   cl.close()
 
-  # Extraire URLBase
-  var base = ""
-  var base_pos = string.find(xml, "<URLBase>")
-  if base_pos >= 0
-    var base_end = string.find(xml, "</URLBase>", base_pos)
-    base = xml[base_pos+9..base_end-1]
-  else
-    # Construire depuis la location
-    var p = string.find(location, "/", 7)
-    if p >= 0
-      base = location[0..p-1]
-    else
-      base = location
+  # -- friendlyName (nom affiche) --
+  var name = location
+  var np = string.find(xml, "<friendlyName>")
+  if np >= 0
+    var ne = string.find(xml, "</friendlyName>", np)
+    if ne >= 0
+      name = dlna_clean(xml[np+14..ne-1])
     end
   end
 
-  # Extraire controlURL du ContentDirectory
-  var cd_pos = string.find(xml, "ContentDirectory")
-  if cd_pos >= 0
-    var ctrl_pos = string.find(xml, "<controlURL>", cd_pos)
-    if ctrl_pos >= 0
-      var ctrl_end = string.find(xml, "</controlURL>", ctrl_pos)
-      var ctrl = xml[ctrl_pos+12..ctrl_end-1]
-      # Supprimer le slash final de base s'il existe
-      if size(base) > 0 && base[size(base)-1..size(base)-1] == "/"
-         base = base[0..size(base)-2]
-      end
-      dlna_control_url = base + ctrl
-      print("DLNA: control URL = " + dlna_control_url)
+  # -- controlURL du ContentDirectory --
+  var cd = string.find(xml, "ContentDirectory")
+  if cd < 0
+    return   # pas de service ContentDirectory sur ce serveur
+  end
+  var cp = string.find(xml, "<controlURL>", cd)
+  if cp < 0
+    return
+  end
+  var ce = string.find(xml, "</controlURL>", cp)
+  var ctrl = dlna_clean(xml[cp+12..ce-1])
+
+  # -- resolution absolu / relatif --
+  var url
+  if string.find(ctrl, "http://") == 0 || string.find(ctrl, "https://") == 0
+    url = ctrl
+  else
+    if size(ctrl) > 0 && ctrl[0..0] != "/"
+      ctrl = "/" + ctrl
+    end
+    url = dlna_origin(location) + ctrl
+  end
+
+  # -- eviter les doublons (meme url) --
+  for srv : dlna_servers
+    if srv["url"] == url
+      return
     end
   end
+
+  dlna_servers.push({"name": name, "url": url})
+  print("DLNA: serveur + " + name + " -> " + url)
 end
 
+# ---------------------------------------------------------------------
+#  Decouverte SSDP : collecte TOUS les serveurs ContentDirectory.
+# ---------------------------------------------------------------------
 def dlna_discover()
-  print("DLNA: démarrage découverte SSDP...")
+  print("DLNA: decouverte SSDP (multi)...")
+  dlna_servers = []
   var sock = udp()
   sock.begin_multicast("239.255.255.250", 1900)
-
-  var msearch = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 3\r\nST: urn:schemas-upnp-org:service:ContentDirectory:1\r\n\r\n"
+  var msearch = "M-SEARCH * HTTP/1.1\r\n"
+                "HOST: 239.255.255.250:1900\r\n"
+                "MAN: \"ssdp:discover\"\r\n"
+                "MX: 3\r\n"
+                "ST: urn:schemas-upnp-org:service:ContentDirectory:1\r\n\r\n"
   sock.send_multicast(bytes().fromstring(msearch))
-
   tasmota.delay(3000)
 
-  # Lire toutes les réponses disponibles
-  var found = false
+  # Memoriser les LOCATION deja traitees (les serveurs repondent en double)
+  var seen = []
   var resp = sock.read()
-  while resp != nil && !found
+  while resp != nil
     var s = resp.asstring()
-    var loc_pos = string.find(s, "LOCATION:")
-    if loc_pos < 0
-      loc_pos = string.find(s, "location:")
-    end
-    if loc_pos >= 0
-      var loc_end = string.find(s, "\r\n", loc_pos)
-      var location = s[loc_pos+9..loc_end-1]
-      # Supprimer espaces en début
-      while size(location) > 0 && location[0..0] == " "
-        location = location[1..]
+    var lp = string.find(s, "LOCATION:")
+    if lp < 0 lp = string.find(s, "Location:") end
+    if lp < 0 lp = string.find(s, "location:") end
+    if lp >= 0
+      var le = string.find(s, "\r", lp)
+      if le < 0 le = string.find(s, "\n", lp) end
+      var location = dlna_clean(s[lp+9..le-1])
+      var dup = false
+      for x : seen
+        if x == location dup = true end
       end
-      print("DLNA: LOCATION = " + location)
-      dlna_fetch_control(location)
-      if dlna_control_url != ""
-        found = true
+      if !dup
+        seen.push(location)
+        dlna_add_server(location)
       end
     end
     resp = sock.read()
   end
-
   sock.close()
 
-  if found
-    print("DLNA: découverte OK -> " + dlna_control_url)
-  else
-    print("DLNA: aucun serveur trouvé, utilisation du fallback")
-  end
-
-  return dlna_control_url
+  print("DLNA: " + str(size(dlna_servers)) + " serveur(s) trouve(s)")
+  return dlna_servers
 end
 
-# ----------- Routes webserver -----------
+# ---------------------------------------------------------------------
+#  Construit le JSON de la liste des serveurs.
+# ---------------------------------------------------------------------
+def dlna_servers_json()
+  var j = "["
+  var first = true
+  for srv : dlna_servers
+    if !first j += "," end
+    first = false
+    # echapper les guillemets du nom
+    var nm = string.replace(srv["name"], '"', '\\"')
+    j += '{"name":"' + nm + '","url":"' + srv["url"] + '"}'
+  end
+  j += "]"
+  return j
+end
 
-# Proxy SOAP -> serveur DLNA
+# =====================================================================
+#  Routes webserver
+# =====================================================================
+
+# --- Proxy SOAP : le control URL cible est passe en query (?ctrl=...) ---
 webserver.on('/dlna', def(req, res)
   var body = webserver.arg('plain')
+  var ctrl = webserver.arg('ctrl')
+  if ctrl == nil || size(ctrl) == 0
+    # fallback : premier serveur connu
+    if size(dlna_servers) > 0
+      ctrl = dlna_servers[0]["url"]
+    else
+      webserver.content_response('<error>no server</error>')
+      return
+    end
+  end
   var cl = webclient()
-  cl.begin(dlna_control_url)
-  cl.add_header('Content-Type', 'text/xml;charset=utf-8')
-  cl.add_header('Soapaction', '"urn:schemas-upnp-org:service:ContentDirectory:1#Browse"')
+  cl.begin(ctrl)
+  cl.add_header('Content-Type', 'text/xml; charset="utf-8"')
+  cl.add_header('SOAPACTION', '"urn:schemas-upnp-org:service:ContentDirectory:1#Browse"')
   cl.add_header('User-Agent', 'Android/15 UPnP/1.0 BubbleUPnP/4.6.3')
   cl.add_header('Connection', 'Keep-Alive')
   cl.add_header('Content-Length', str(size(body)))
   var code = cl.POST(body)
   var result = cl.get_string()
   cl.close()
+  print("DLNA proxy: code=" + str(code) + " taille=" + str(size(result)))
   webserver.header('Content-Type', 'text/xml')
   webserver.content_response(result)
 end)
 
-# Lancer la découverte depuis le navigateur
+# --- Lancer la decouverte ---
 webserver.on('/dlna/discover', def(req, res)
   dlna_discover()
-  webserver.content_response('{"url":"' + dlna_control_url + '"}')
+  webserver.content_response(dlna_servers_json())
 end)
 
-# Lire l'URL courante
-webserver.on('/dlna/status', def(req, res)
-  webserver.content_response('{"url":"' + dlna_control_url + '"}')
+# --- Lire la liste courante sans relancer la decouverte ---
+webserver.on('/dlna/servers', def(req, res)
+  webserver.content_response(dlna_servers_json())
 end)
 
-# Lancer la découverte automatiquement au démarrage
+# --- Decouverte auto 10 s apres le demarrage ---
 tasmota.set_timer(10000, def()
   dlna_discover()
 end)
