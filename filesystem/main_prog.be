@@ -5,6 +5,8 @@ var fav_list = []
 var last_station = {"name":"", "url":""}
 var state = {"playing": false, "level": 20}
 var playlist = {"items": [], "index": 0, "mode": "one"}
+var advancing = false   # garde anti-réentrance : ignore les Ended parasites lors d'un changement de piste
+var last_ended = 0      # timestamp du dernier Ended traité (anti-rebond de fin)
 
 def load_data()
     if persist.Fav != nil
@@ -32,20 +34,24 @@ def save_data()
     persist.save()
 end
 
-def play_station(name, url)
+# play_station(name, url, is_dlna)
+#   is_dlna == true  -> commande i2swr2 : mode DLNA firmware, reconnect (0,0),
+#                       arret propre en fin de fichier (pas de rechargement).
+#   is_dlna == false -> commande i2swr1 : mode RADIO, reconnect (5,5),
+#                       encaisse les micro-coupures d'un flux internet.
+def play_station(name, url, is_dlna)
     if url != ""
         state["playing"] = true
-        tasmota.cmd("i2swr1")
+        advancing = true                    # ignore les Ended provoqués par le stop ci-dessous
+        var wr = is_dlna ? "i2swr2" : "i2swr1"
+        tasmota.cmd(wr)                     # stop du flux courant
         tasmota.cmd("delay 10")
-        # i2swr2 pour DLNA local (SetReconnect 0,0), i2swr1 pour webradio internet
-        if string.startswith(url, "http://192.168.") || string.startswith(url, "http://10.")
-            tasmota.cmd("i2swr2 " + url)
-        else
-            tasmota.cmd("i2swr1 " + url)
-        end
-        print("playing " + name + " " + url)
+        tasmota.cmd(wr + " " + url)         # demarre le nouveau flux dans le bon mode
+        print("playing " + name + " " + url + " (dlna=" + str(is_dlna) + ")")
         tasmota.cmd("delay 10")
         tasmota.cmd("displaydimmer 1")
+        # relâche le flag après le démarrage du flux (le Ended parasite est déjà passé)
+        tasmota.set_timer(1200, def() advancing = false end)
         tasmota.set_timer(5000, def()
             last_station = {"name":name, "url":url}
             save_data()
@@ -56,7 +62,7 @@ end
 def play_fav(index)
     if (index >= 0) && (index < fav_list.size())
         var s = fav_list[index]
-        play_station(s["name"], s["url"])
+        play_station(s["name"], s["url"], false)   # favori = radio
     end
 end
 
@@ -77,7 +83,7 @@ end
 def play_last()
     if last_station["url"] != ""
         tasmota.cmd("delay 20")
-        play_station(last_station["name"], last_station["url"])
+        play_station(last_station["name"], last_station["url"], false)   # dernier = radio
     end
 end
 
@@ -87,28 +93,32 @@ def cmd_play(cmd, idx, payload, raw)
 end
 
 def cmd_stop(cmd, idx, payload, raw)
+  advancing = true                    # empêche le Ended du stop manuel de déclencher playlist_next
   tasmota.cmd("I2SStop")
   print("Stopped")
   tasmota.cmd("displaydimmer 0")
   state["playing"] = false
   # playlist intentionnellement non effacée
+  tasmota.set_timer(1200, def() advancing = false end)
   tasmota.resp_cmnd_done()
 end
 
 def cmd_playurl(cmd, idx, payload, raw)
   var parts = string.split(payload, "||u=")
   if parts.size() >= 2
-    play_station(parts[0], parts[1])
+    play_station(parts[0], parts[1], false)   # playurl = radio (stream internet)
   else
-    play_station("web", payload)
+    play_station("web", payload, false)
   end
   tasmota.resp_cmnd_done()
 end
 
-# --- Playlist ---
+# --- Playlist (DLNA) ---
 
 def playlist_next()
+  print(">>> NEXT | mode=" + playlist["mode"] + " | index=" + str(playlist["index"]) + " | playing=" + str(state["playing"]))
   if !state["playing"]
+    print(">>> NEXT abort (not playing)")
     return
   end
   var items = playlist["items"]
@@ -122,25 +132,29 @@ def playlist_next()
     return
 
   elif mode == "loop_one"
-    play_station("dlna", items[index])
+    play_station("dlna", items[index], true)
 
   elif mode == "all"
     index += 1
     if index < n
       playlist["index"] = index
-      play_station("dlna", items[index])
+      play_station("dlna", items[index], true)
+    else
+      # fin de playlist : on arrête proprement
+      state["playing"] = false
+      tasmota.cmd("displaydimmer 0")
     end
 
   elif mode == "loop_all"
     index = (index + 1) % n
     playlist["index"] = index
-    play_station("dlna", items[index])
+    play_station("dlna", items[index], true)
 
   elif mode == "shuffle"
     import math
     var new_index = int(math.rand() % n)
     playlist["index"] = new_index
-    play_station("dlna", items[new_index])
+    play_station("dlna", items[new_index], true)
 
   end
 end
@@ -168,7 +182,7 @@ def cmd_setplaylist(cmd, idx, payload, raw)
 
   playlist = {"items": items, "index": index, "mode": mode}
   print("playlist set: " + str(items.size()) + " items, mode=" + mode + ", index=" + str(index))
-  play_station("dlna", items[index])
+  play_station("dlna", items[index], true)   # playlist = DLNA
   tasmota.resp_cmnd_done()
 end
 
@@ -193,28 +207,14 @@ def ap_mode()
   tasmota.cmd("stop")
   tasmota.cmd("WifiConfig 2")
   tasmota.cmd("Delay 10")
-  #tasmota.cmd("DisplayText [z][x5y10] AP mode[x5y20] SSID: T-WebRadio[x5y30] Pass: empty[x5y50] IP:192.168.4.1/wi")
-  #tasmota.cmd("displaydimmer 1") 
-  tasmota.cmd("backlog color 00ff00; dimmer 100") 
+  tasmota.cmd("DisplayText [z][x5y10] AP mode[x5y20] SSID: T-WebRadio[x5y30] Pass: empty[x5y50] IP:192.168.4.1/wi")
+  tasmota.cmd("displaydimmer 1")  
   print("AP mode started")
-end
-
-def wifi_connected()
-  tasmota.set_timer(3000, 
-    def ()
-        var ssid = tasmota.wifi()["ssid"]
-        #tasmota.cmd("DisplayText [x0y0][u126:64:3][x5y30]" + str(ssid))
-        var ip = tasmota.wifi()["ip"]
-        #tasmota.cmd("DisplayText [x5y40]" + str(ip) + "[x5y50]/webradio")
-        #tasmota.cmd("DisplayText [x5y20]           [x5y20]Vol: " + str(state["level"]))
-    end)
-  tasmota.cmd("backlog color 0000ff; dimmer 100")
-  print("Wifi connected")
 end
 
 def set_vol(value)
   tasmota.cmd("I2SGain " + str(value))
-  #tasmota.cmd("DisplayText [x5y20]           [x5y20]Vol: " + str(value))
+  tasmota.cmd("DisplayText [x5y20]           [x5y20]Vol: " + str(value))
   print("Volume set to " + str(value))
 end
 
@@ -228,6 +228,17 @@ def cmd_vol(cmd, idx, payload, raw)
   end
 end
 
+def wifi_connected()
+  tasmota.set_timer(3000, 
+    def ()
+        var ssid = tasmota.wifi()["ssid"]
+        tasmota.cmd("DisplayText [x0y0][u126:64:3][x5y30]" + str(ssid))
+        var ip = tasmota.wifi()["ip"]
+        tasmota.cmd("DisplayText [x5y40]" + str(ip) + "[x5y50]/webradio")
+        tasmota.cmd("DisplayText [x5y20]           [x5y20]Vol: " + str(state["level"]))
+    end)
+  print("Wifi connected")
+end
 
 def display_now_playing(title)
    print(str(title))
@@ -236,23 +247,15 @@ end
 
 def cmd_savefav(cmd, idx, payload, raw)
   var parts = string.split(payload, "||")
-  print(parts)
-
-  var num = -1
-  var name = ""
-  var url = ""
-
-  for part : parts
-    if string.startswith(part, "num=")
-      num = int(part[4..]) - 1
-    elif string.startswith(part, "name=")
-      name = part[5..]
-    elif string.startswith(part, "url=")
-      url = part[4..]
-    end
+  if parts.size() < 3
+    tasmota.resp_cmnd_error()
+    return
   end
-
-  if num >= 0 && num < fav_list.size() && url != ""
+  var num = int(string.split(parts[0], "=")[1]) - 1
+  var name = string.split(parts[1], "=")[1]
+  var url = string.split(parts[2], "=")[1]
+  
+  if num >= 0 && num < fav_list.size()
     fav_list[num] = {"name": name, "url": url}
     save_data()
     print("fav " + str(num+1) + " saved: " + name)
@@ -287,25 +290,40 @@ tasmota.add_cmd("setplaylist",  cmd_setplaylist)
 tasmota.add_cmd("getplaymode",  cmd_getplaymode)
 tasmota.add_cmd("setplaymode",  cmd_setplaymode)
 
+# --- Detection de fin de piste ---
+# En mode DLNA (i2swr2, reconnect 0,0) le firmware ne recharge plus le fichier :
+# un seul Ended propre est emis en fin de piste. advancing couvre le stop volontaire,
+# last_ended filtre un eventuel doublon rapproche.
 tasmota.add_rule("Event#I2SPlay=Ended", def (value, trigger, msg)
+  print(">>> ENDED recu | advancing=" + str(advancing) + " | index=" + str(playlist["index"]))
+  if advancing
+    print(">>> ignore (advancing)")
+    return
+  end
+  var now = tasmota.millis()
+  if now - last_ended < 3000
+    print(">>> ignore (doublon " + str(now - last_ended) + "ms)")
+    return
+  end
+  last_ended = now
   playlist_next()
 end)
 
-#tasmota.add_rule("Switch1#State=3", def (value, trigger, msg)
-#  if state["playing"]
-#    tasmota.cmd("stop")
-#  else
-#    tasmota.cmd("play")
-#  end
-#end)
+tasmota.add_rule("Switch1#State=3", def (value, trigger, msg)
+  if state["playing"]
+    tasmota.cmd("stop")
+  else
+    tasmota.cmd("play")
+  end
+end)
 
 tasmota.add_rule("Switch1#State=0", def (value, trigger, msg)
   ap_mode()
 end)
 
-#tasmota.add_rule("Rotary1#Pos1", def (value, trigger, msg)
-#  set_vol(value)
-#end)
+tasmota.add_rule("Rotary1#Pos1", def (value, trigger, msg)
+  set_vol(value)
+end)
 
 tasmota.add_rule("Wifi#Connected", def (value, trigger, msg)
   wifi_connected()
@@ -319,16 +337,14 @@ tasmota.add_cron("*/15 * * * * *", def ()
   tasmota.cmd("Status 8")
 end, "refresh_title")
 
-#tasmota.add_rule("System#Boot", def (value, trigger, msg)
-#  tasmota.set_timer(10000, def()
-#    if !state["playing"]
-#      tasmota.cmd("displaydimmer 0")
-#    end
-#  end)
-#end)
+tasmota.add_rule("System#Boot", def (value, trigger, msg)
+  tasmota.set_timer(10000, def()
+    if !state["playing"]
+      tasmota.cmd("displaydimmer 0")
+    end
+  end)
+end)
 
 load_data()
-#tasmota.cmd("DisplayText [z]")
+tasmota.cmd("DisplayText [z]")
 set_vol(state["level"])
-tasmota.cmd("backlog color ff0000; dimmer 100")
-
